@@ -23,7 +23,8 @@ function chat_completion_with_openai($messages, $model, $api_key) {
     $data = array(
         "model" => $model,
         "messages" => $messages,
-        "max_tokens" => 50
+        "max_tokens" => 1600,
+        
     );
     
     $curl = curl_init($url);
@@ -75,28 +76,30 @@ function ai_content_changer_page() {
                 $post_content = get_the_content();
 
                 // Create chat messages using the provided prompts for title and content
-                $messages = array(
+                $title_messages = array(
                     array(
                         'role' => 'user',
-                        'content' => "Title: " . $title_prompt . "\n\nContent: " . $content_prompt,
+                        'content' => $title_prompt . ' ' . $post_title
                     ),
+                );
+
+                $content_messages = array(
                     array(
-                        'role' => 'assistant',
-                        'content' => "Title: " . $post_title . "\n\nContent: " . $post_content,
+                        'role' => 'user',
+                        'content' => $content_prompt . ' ' . $post_content
                     ),
                 );
 
                 // Send a chat-based completion request to OpenAI
-                $altered_content = chat_completion_with_openai($messages, $model, $api_key);
+                $altered_title = chat_completion_with_openai($title_messages, $model, $api_key);
 
-                if ($altered_content) {
-                    // Extract the title and content from the altered response
-                    list($new_title, $new_content) = explode("\n\nContent: ", $altered_content);
+                $altered_content = chat_completion_with_openai($content_messages, $model, $api_key);
 
+                if ($altered_title && $altered_content) {
                     // Create a new post with the extracted title and content
                     $new_post = array(
-                        'post_title' => $new_title,
-                        'post_content' => $new_content,
+                        'post_title' => $altered_title,
+                        'post_content' => $altered_content,
                         'post_status' => 'publish',
                         'post_category' => $selected_created_categories,
                     );
@@ -105,7 +108,7 @@ function ai_content_changer_page() {
 
                     if ($new_post_id) {
                         // Display a success message
-                        echo '<p>Post translated and created: ' . esc_html($new_title) . '</p>';
+                        echo '<p>Post translated and created: ' . esc_html($post_title) . '</p>';
                     } else {
                         echo '<p>Error creating translated post for: ' . esc_html($post_title) . '</p>';
                     }
@@ -215,4 +218,5 @@ function create_custom_stylesheet() {
 
 register_activation_hook(__FILE__, 'create_custom_stylesheet');
 
+require_once __DIR__ . '/cron.php';
 ?>
