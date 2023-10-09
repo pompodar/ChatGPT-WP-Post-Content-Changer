@@ -7,10 +7,8 @@ const categoryId = your_ajax_object.post_to_be_category;
 const status = your_ajax_object.post_to_be_status;
 
 function transformAndCreatePosts() {
-    setTimeout(() => {
-        
-    }, 1000);
-    
+    setTimeout(() => {}, 1000);
+
     const data = {
         action: "get_recent_posts",
     };
@@ -24,8 +22,7 @@ function transformAndCreatePosts() {
             if (!data[0].title) {
                 console.log("No new posts to retrieve.");
             } else {
-            console.log("Posts retrieved:", data[0].title);
-
+                console.log("Posts retrieved:", data[0].title);
 
                 // Iterate through retrieved posts and transform them
                 data.forEach((post) => {
