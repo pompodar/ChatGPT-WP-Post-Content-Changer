@@ -108,13 +108,16 @@ function ai_content_changer_page() {
 
                     if ($new_post_id) {
                         // Display a success message
-                        echo '<p>Post translated and created: ' . esc_html($post_title) . '</p>';
+                        echo '<p>Post translated and created: ' . esc_html($altered_title) . '</p>';
                     } else {
                         echo '<p>Error creating translated post for: ' . esc_html($post_title) . '</p>';
                     }
                 } else {
                     echo '<p>Error translating content for: ' . esc_html($post_title) . '</p>';
                 }
+                
+                sleep(10);
+                
             endwhile;
         }
     }
@@ -186,7 +189,8 @@ function ai_content_changer_page() {
                 echo '<option value="' . esc_attr($status) . '">' . esc_html($label) . '</option>';
             }
             ?>
-        </select><br><br> <input type="submit" name="translate_posts" class="button-primary" value="Translate Posts">
+        </select><br><br>
+        <input type="submit" name="translate_posts" class="button-primary" value="Translate Posts">
     </form>
 </div>
 <?php
@@ -205,18 +209,199 @@ function enqueue_plugin_scripts() {
     wp_enqueue_style('ai-content-changer-style', plugin_dir_url(__FILE__) . 'style.css');
 }
 
-// Create custom stylesheet
-function create_custom_stylesheet() {
-    $css = '
-        /* Add your custom CSS styles here */
-    ';
+function get_ai_data() {
+    $options = get_option('my_plugin_options');
+    
+    $url = 'https://api.openai.com/v1/chat/completions';  
+    $headers = array(
+        "Authorization: Bearer  {$options['api_key']}",
+        "Content-Type: application/json"
+    );
 
-    $file = fopen(plugin_dir_path(__FILE__) . 'style.css', 'w');
-    fwrite($file, $css);
-    fclose($file);
+    $message = sanitize_text_field($_POST['message']);
+
+    $messages = array(
+                    array(
+                        'role' => 'user',
+                        'content' => $message
+                    ),
+                );
+    
+    $data = array(
+        "model" => $options['model'],
+        "messages" => $messages,
+        "max_tokens" => 1600,
+        
+    );
+    
+    $curl = curl_init($url);
+    curl_setopt($curl, CURLOPT_POST, 1);
+    curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($data));
+    curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
+    curl_setopt($curl, CURLOPT_RETURNTRANSFER, 1);
+    
+    $result = curl_exec($curl);
+    
+    if (curl_errno($curl)) {
+        echo 'Error:' . curl_error($curl);
+    } else {
+        echo json_decode($result)->choices[0]->message->content;
+    }
+    
+    curl_close($curl); 
+
+    wp_die();
 }
 
-register_activation_hook(__FILE__, 'create_custom_stylesheet');
+add_action('wp_ajax_get_ai_data', 'get_ai_data');
+add_action('wp_ajax_nopriv_get_ai_data', 'get_ai_data');
 
-require_once __DIR__ . '/cron.php';
+
+function enqueue_retrieve_posts_script() {
+  wp_enqueue_script('retrieve-posts', plugin_dir_url(__FILE__) . '/script.js', array('jquery'), null, true);
+  wp_localize_script('retrieve-posts', 'your_ajax_object', array('ajaxurl' => admin_url('admin-ajax.php'), 'interval' => get_option('my_plugin_options')['interval'], 'title_prompt' => get_option('my_plugin_options')['title_prompt'], 'content_prompt' => get_option('my_plugin_options')['content_prompt'], 'post_to_be_status' => get_option('my_plugin_options')['post_to_be_status'], 'post_to_be_category' => get_option('my_plugin_options')['post_to_be_category'] ));
+}
+add_action('admin_enqueue_scripts', 'enqueue_retrieve_posts_script');
+
+function create_post() {
+    // Check if the user is logged in or has permission to create posts
+
+    // Sanitize and retrieve the title and content from the AJAX request
+    $new_title = sanitize_text_field($_POST['title']);
+    $new_content = wp_kses_post($_POST['content']);
+
+    // Retrieve current options
+    $options = get_option('my_plugin_options');
+
+    // Create a new post
+    $post_data = array(
+        'post_title' => $new_title,
+        'post_content' => $new_content,
+        'post_status' => $options['post_status'], // You can change the post status as needed
+        'post_author' => get_current_user_id(), // Set the post author
+        'post_category' => array($options['post_category']), // Specify the category by ID
+    );
+
+    $post_id = wp_insert_post($post_data);
+
+    if ($post_id) {
+        echo 'Post created successfully!';
+    } else {
+        echo 'Error creating the post.';
+    }
+
+    wp_die();
+}
+
+add_action('wp_ajax_create_post', 'create_post');
+add_action('wp_ajax_nopriv_create_post', 'create_post');
+
+// Add an admin menu item for your settings page
+function my_plugin_settings_menu() {
+    add_menu_page('AI Content Changer Settings', 'AI Content Changer Settings', 'manage_options', 'my-plugin-settings', 'my_plugin_settings_page');
+}
+add_action('admin_menu', 'my_plugin_settings_menu');
+
+// Create the settings page
+function my_plugin_settings_page() {
+    if (isset($_POST['submit'])) {
+        $updated_options = array(
+            'api_key' => sanitize_text_field($_POST['api_key']),
+            'model' => sanitize_text_field($_POST['model']),
+            'title_prompt' => sanitize_text_field($_POST['title_prompt']),
+            'content_prompt' => sanitize_text_field($_POST['content_prompt']),
+            'interval' => intval($_POST['interval']),
+            'post_to_be_status' => sanitize_text_field($_POST['post_to_be_status']),
+            'post_to_be_category' => sanitize_text_field($_POST['post_to_be_category']),
+            'post_status' => sanitize_text_field($_POST['post_status']),
+            'post_category' => sanitize_text_field($_POST['post_category']),
+        );
+
+        update_option('my_plugin_options', $updated_options);
+    }
+
+    // Retrieve current options
+    $options = get_option('my_plugin_options');
+
+    // Display HTML form for updating options
+    ?>
+<div class="wrap">
+    <h2>My Plugin Settings</h2>
+    <div class="wrap">
+        <h2>My Plugin Settings</h2>
+        <form method="post">
+            <label for="api_key">API Key:</label>
+            <input type="text" name="api_key" value="<?php echo esc_attr($options['api_key']); ?>" /><br />
+
+            <label for="model">Model:</label>
+            <input type="text" name="model" value="<?php echo esc_attr($options['model']); ?>" /><br />
+
+            <label for="title_prompt">Title Prompt:</label>
+            <input type="text" name="title_prompt" value="<?php echo esc_attr($options['title_prompt']); ?>" /><br />
+
+            <label for="content_prompt">Content Prompt:</label>
+            <textarea name="content_prompt"><?php echo esc_textarea($options['content_prompt']); ?></textarea><br />
+
+            <label for="interval">Interval (minutes):</label>
+            <input type="number" name="interval" value="<?php echo esc_attr($options['interval']); ?>" /><br />
+
+            <!-- Select field for post status -->
+            <label for="post_to_be_status">Posts to be Transformed Status:</label>
+            <select name="post_to_be_status">
+                <option value="publish"
+                    <?php selected('publish', isset($_POST['post_to_be_status']) ? $_POST['post_to_be_status'] : $options['post_to_be_status']); ?>>
+                    Publish</option>
+                <option value="draft"
+                    <?php selected('draft', isset($_POST['post_to_be_status']) ? $_POST['post_to_be_status'] : $options['post_to_be_status']); ?>>
+                    Draft</option>
+                <option value="pending"
+                    <?php selected('pending', isset($_POST['post_to_be_status']) ? $_POST['post_to_be_status'] : $options['post_to_be_status']); ?>>
+                    Pending</option>
+            </select><br />
+
+            <!-- Select field for category -->
+            <label for="post_to_be_category">Posts to be Transformed Category:</label>
+            <select name="post_to_be_category">
+                <?php
+            $categories = get_categories();
+            foreach ($categories as $category) {
+                echo '<option value="' . esc_attr($category->term_id) . '" ' . selected($category->term_id, $options['post_to_be_category']) . '>' . esc_html($category->name) . '</option>';
+            }
+            ?>
+            </select><br />
+
+            <!-- Select field for post status -->
+            <label for="post_status">Transformed Post Status:</label>
+            <select name="post_status">
+                <option value="publish"
+                    <?php selected('publish', isset($_POST['post_status']) ? $_POST['post_status'] : $options['post_status']); ?>>
+                    Publish</option>
+                <option value="draft"
+                    <?php selected('draft', isset($_POST['post_status']) ? $_POST['post_status'] : $options['post_status']); ?>>
+                    Draft</option>
+                <option value="pending"
+                    <?php selected('pending', isset($_POST['post_status']) ? $_POST['post_status'] : $options['post_status']); ?>>
+                    Pending</option>
+            </select><br />
+
+            <!-- Select field for category -->
+            <label for="post_category">Transformed Post Category:</label>
+            <select name="post_category">
+                <?php
+            $categories = get_categories();
+            foreach ($categories as $category) {
+                echo '<option value="' . esc_attr($category->term_id) . '" ' . selected($category->term_id, $options['post_category']) . '>' . esc_html($category->name) . '</option>';
+            }
+            ?>
+            </select><br />
+
+            <input type="submit" name="submit" value="Save Settings" />
+        </form>
+    </div>
+
+
+    <button id="start-transforming">Start transforming posts</button>
+    <?php
+}
+
 ?>
